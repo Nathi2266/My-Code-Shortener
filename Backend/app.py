@@ -13,6 +13,10 @@ import openai
 from typing import List, Dict, Any
 from language_detector import detector  # Import the detector instance directly
 from dotenv import load_dotenv
+import zipfile
+import io
+from pathlib import Path
+import mimetypes
 
 app = Flask(__name__)
 CORS(app)
@@ -240,6 +244,59 @@ def modernize_syntax(code: str) -> str:
     except Exception:
         return code
 
+def is_code_file(filename):
+    """Check if a file is likely to be a code file based on extension"""
+    code_extensions = {
+        '.py', '.js', '.java', '.cpp', '.c', '.h', '.hpp', '.cs', '.php',
+        '.rb', '.go', '.rs', '.swift', '.kt', '.ts', '.jsx', '.tsx', '.html',
+        '.css', '.scss', '.sql', '.sh', '.bash', '.ps1'
+    }
+    return Path(filename).suffix.lower() in code_extensions
+
+def process_zip_file(zip_data):
+    """Process a zip file and return processed files information"""
+    results = []
+    
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zip_ref:
+        # Get list of files in zip
+        file_list = zip_ref.namelist()
+        
+        # Process each file
+        for filename in file_list:
+            if not is_code_file(filename):
+                continue
+                
+            try:
+                # Read file content
+                with zip_ref.open(filename) as file:
+                    content = file.read().decode('utf-8')
+                
+                # Detect language
+                language = detector.detect_language(content)
+                
+                # Shorten code
+                shortened = shorten_code(content, language=language)
+                
+                # Calculate stats
+                stats = calculate_stats(content, shortened)
+                
+                # Add to results
+                results.append({
+                    'filename': filename,
+                    'language': language,
+                    'original': content,
+                    'shortened': shortened,
+                    'stats': stats
+                })
+                
+            except Exception as e:
+                results.append({
+                    'filename': filename,
+                    'error': str(e)
+                })
+    
+    return results
+
 @app.route('/detect', methods=['POST'])
 def detect_language():
     try:
@@ -324,6 +381,41 @@ def upgrade_code():
         "upgraded": transformed,
         "applied": applied
     })
+
+@app.route('/process-zip', methods=['POST'])
+def process_zip():
+    """Process a zip file containing code files"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+            
+        file = request.files['file']
+        if not file.filename.endswith('.zip'):
+            return jsonify({'error': 'File must be a zip archive'}), 400
+            
+        # Read zip file
+        zip_data = file.read()
+        
+        # Process zip file
+        results = process_zip_file(zip_data)
+        
+        # Calculate overall statistics
+        total_files = len(results)
+        successful_files = len([r for r in results if 'error' not in r])
+        total_chars_saved = sum(r['stats']['chars_saved'] for r in results if 'error' not in r)
+        
+        return jsonify({
+            'success': True,
+            'summary': {
+                'total_files': total_files,
+                'successful_files': successful_files,
+                'total_chars_saved': total_chars_saved
+            },
+            'files': results
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
