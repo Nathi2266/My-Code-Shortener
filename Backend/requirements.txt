@@ -1,0 +1,9 @@
+Flask==2.0.1
+Flask-Cors==3.0.10
+astor
+openai
+black
+autopep8
+requests==2.31.0
+python-dotenv==1.0.0
+tree-sitter==0.20.4
