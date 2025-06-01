@@ -11,7 +11,6 @@ import tempfile
 import os
 import openai
 from typing import List, Dict, Any
-from language_detector import detector  # Import the detector instance directly
 from dotenv import load_dotenv
 import zipfile
 import io
@@ -87,10 +86,20 @@ def minify_python(code):
         print(f"Error minifying Python code: {e}")
         return code
 
+def detect_language_simple(code):
+    """Simple language detection based on code patterns"""
+    if 'def ' in code or 'import ' in code or 'print(' in code:
+        return 'Python'
+    elif 'function ' in code or 'const ' in code or 'let ' in code:
+        return 'JavaScript'
+    elif 'public class' in code or 'void ' in code:
+        return 'Java'
+    return 'unknown'
+
 def shorten_code(code, compression_percent=50, language=None):
     """Shorten code based on language and compression percentage"""
     if language is None:
-        language = detector.detect_language(code)  # Use the detector instance
+        language = detect_language_simple(code)
     
     if language == 'Python':
         return minify_python(code)
@@ -272,7 +281,7 @@ def process_zip_file(zip_data):
                     content = file.read().decode('utf-8')
                 
                 # Detect language
-                language = detector.detect_language(content)
+                language = detect_language_simple(content)
                 
                 # Shorten code
                 shortened = shorten_code(content, language=language)
@@ -304,7 +313,7 @@ def detect_language():
         if not code:
             return jsonify({'error': 'No code provided'}), 400
             
-        language = detector.detect_language(code)  # Use the detector instance
+        language = detect_language_simple(code)
         return jsonify({'language': language})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -319,7 +328,7 @@ def shorten():
             return jsonify({'error': 'No code provided'}), 400
             
         # Detect language using the detector instance
-        language = detector.detect_language(code)
+        language = detect_language_simple(code)
         
         # Shorten code
         shortened = shorten_code(code, compression_percent, language)
