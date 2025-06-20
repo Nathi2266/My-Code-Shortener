@@ -21,7 +21,9 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
 
 load_dotenv()
-openai.api_key = "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"
+openai.api_key = os.environ.get("OPENAI_API_KEY")
+if not openai.api_key:
+    raise ValueError("Missing OPENAI_API_KEY in environment variables")
 
 # Constants
 CODE_LENGTH_THRESHOLD = 5000
@@ -351,46 +353,50 @@ def shorten():
             'language': language
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Error shortening code: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/upgrade', methods=['POST'])
 def upgrade_code():
-    data = request.get_json()
-    code = data.get('code', '')
-    options = data.get('upgradeOptions', [])
-    
-    if not code:
-        return jsonify({"error": "No code provided"}), 400
-    
-    transformed = code
-    applied = []
-    
-    # Apply transformations in order
-    if 'refactor' in options:
-        transformed = refactor_identifiers(transformed)
-        applied.append('refactor')
-    
-    if 'types' in options:
-        transformed = add_type_annotations(transformed)
-        applied.append('types')
-    
-    if 'lint' in options:
-        transformed = format_code(transformed)
-        applied.append('lint')
-    
-    if 'docs' in options:
-        transformed = generate_docstrings_via_openai(transformed)
-        applied.append('docs')
-    
-    if 'modern' in options:
-        transformed = modernize_syntax(transformed)
-        applied.append('modern')
-    
-    return jsonify({
-        "original": code,
-        "upgraded": transformed,
-        "applied": applied
-    })
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        options = data.get('upgradeOptions', [])
+        
+        if not code:
+            return jsonify({"error": "No code provided"}), 400
+        
+        transformed = code
+        applied = []
+        
+        # Apply transformations in order
+        if 'refactor' in options:
+            transformed = refactor_identifiers(transformed)
+            applied.append('refactor')
+        
+        if 'types' in options:
+            transformed = add_type_annotations(transformed)
+            applied.append('types')
+        
+        if 'lint' in options:
+            transformed = format_code(transformed)
+            applied.append('lint')
+        
+        if 'docs' in options:
+            transformed = generate_docstrings_via_openai(transformed)
+            applied.append('docs')
+        
+        if 'modern' in options:
+            transformed = modernize_syntax(transformed)
+            applied.append('modern')
+        
+        return jsonify({
+            "original": code,
+            "upgraded": transformed,
+            "applied": applied
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/process-zip', methods=['POST'])
 def process_zip():

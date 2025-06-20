@@ -1,10 +1,10 @@
-Flask==2.0.1
-Flask-Cors==3.0.10
-astor
-openai
+flask>=2.0.1
+python-dotenv>=0.19.0
+openai>=0.27.0
+astor>=0.8.1
+flask-cors>=3.0.10
 black
 autopep8
 requests==2.31.0
-python-dotenv==1.0.0
 tree-sitter==0.20.4
 python-magic==0.4.27

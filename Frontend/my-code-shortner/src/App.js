@@ -8,12 +8,12 @@ import {
   VStack, 
   Code, 
   Alert, 
-  AlertIcon, 
   Spinner, 
   useToast,
   Text
 } from '@chakra-ui/react';
 import React, { useState } from 'react';
+import { WarningIcon } from '@chakra-ui/icons';
 
 function App() {
   const [code, setCode] = useState('');
@@ -112,7 +112,7 @@ function App() {
               <Box bg="white" p={6} borderRadius="md" boxShadow="md">
                 {result.error ? (
                   <Alert status="error" borderRadius="md">
-                    <AlertIcon />
+                    <WarningIcon mr={3} />
                     {result.error}
                   </Alert>
                 ) : (
