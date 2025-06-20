@@ -16,17 +16,17 @@ import zipfile
 import io
 from pathlib import Path
 import mimetypes
+import logging
+from collections import defaultdict
 
-app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
-
-load_dotenv()
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-if not openai.api_key:
-    raise ValueError("Missing OPENAI_API_KEY in environment variables")
+logger = logging.getLogger(__name__)
 
 # Constants
 CODE_LENGTH_THRESHOLD = 5000
+
+# Initialize Flask app first
+app = Flask(__name__)
+CORS(app)
 
 def fast_strip(code_str):
     """Quickly strip comments and blank lines from Python code"""
@@ -321,40 +321,36 @@ def detect_language():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/shorten', methods=['POST'])
-def shorten():
+def shorten_code():
     try:
         data = request.get_json()
-        code = data.get('code')
-        compression_percent = data.get('compressionPercent')
-        
+        code = data.get('code', '')
+        compression_percent = data.get('compressionPercent', 50)
+        lang = data.get('lang', 'python').lower()  # Get language from request
+
         if not code:
-            return jsonify({'error': 'Missing required "code" parameter'}), 400
-            
-        # Detect language using the detector instance
-        language = detect_language_simple(code)
-        
-        # Shorten code
-        shortened = shorten_code(code, compression_percent, language)
-        
-        # Calculate stats
-        stats = calculate_stats(code, shortened)
-        
-        # Calculate complexity
-        complexity = calculate_complexity(code)
-        
-        # Estimate runtime
-        runtime = estimate_runtime_diff(code, shortened)
-        
+            return jsonify({"error": "No code provided"}), 400
+
+        # Language-specific minification
+        if lang == "python":
+            compressed = minify_python(code)
+        elif lang == "javascript":
+            compressed = minify_js(code)
+        elif lang == "java":
+            compressed = minify_java(code)
+        else:
+            return jsonify({"error": "Unsupported language"}), 415
+
         return jsonify({
-            'shortened': shortened,
-            'stats': stats,
-            'complexity': complexity,
-            'runtime': runtime,
-            'language': language
+            "original": code,
+            "shortened": compressed,
+            "language": lang,
+            "compression": compression_percent
         })
+        
     except Exception as e:
-        app.logger.error(f"Error shortening code: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error processing request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/upgrade', methods=['POST'])
 def upgrade_code():
@@ -432,6 +428,121 @@ def process_zip():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/metrics', methods=['POST'])
+def track_metrics():
+    data = request.get_json()
+    # Add color mode to metrics tracking
+    color_mode = data.get('colorMode', 'light')
+    # ... rest of metrics logic ...
+
+@app.route('/explain', methods=['POST'])
+def explain_code():
+    try:
+        data = request.get_json()
+        code_snippet = data.get('code', '')
+        
+        if not code_snippet:
+            return jsonify({"error": "No code provided"}), 400
+            
+        if not openai.api_key:
+            load_dotenv()
+            openai.api_key = os.getenv("OPENAI_API_KEY")
+            if not openai.api_key:
+                return jsonify({"error": "OpenAI API key not configured"}), 500
+
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Explain the following code snippet to a beginner developer in simple terms."},
+                {"role": "user", "content": code_snippet}
+            ],
+            temperature=0.7,
+            max_tokens=256
+        )
+        
+        return jsonify({
+            "explanation": response.choices[0].message.content
+        })
+        
+    except Exception as e:
+        logger.error(f"Explanation error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/summarize-functions', methods=['POST'])
+def summarize_functions():
+    try:
+        data = request.get_json()
+        code = data.get('code', '')
+        
+        if not code:
+            return jsonify({"error": "No code provided"}), 400
+        
+        language = detect_language_simple(code)
+        summaries = []
+        
+        if language == 'Python':
+            summaries = analyze_python_functions(code)
+        # Add other language handlers here
+        
+        return jsonify({"summaries": summaries})
+    
+    except Exception as e:
+        logger.error(f"Function analysis error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+def analyze_python_functions(code):
+    try:
+        tree = ast.parse(code)
+        functions = []
+        
+        class FunctionAnalyzer(ast.NodeVisitor):
+            def visit_FunctionDef(self, node):
+                func_info = {
+                    'name': node.name,
+                    'inputs': [],
+                    'returns': None,
+                    'side_effects': [],
+                    'start_line': node.lineno,
+                    'end_line': node.end_lineno
+                }
+                
+                # Analyze arguments
+                for arg in node.args.args:
+                    param = {
+                        'name': arg.arg,
+                        'type': ast.unparse(arg.annotation) if arg.annotation else None
+                    }
+                    func_info['inputs'].append(param)
+                
+                # Analyze return type
+                if node.returns:
+                    func_info['returns'] = ast.unparse(node.returns)
+                
+                # Detect side effects
+                side_effects = set()
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Global):
+                        side_effects.update(child.names)
+                    elif isinstance(child, (ast.Call, ast.Expr)):
+                        # Detect I/O operations
+                        if isinstance(child.value, ast.Name) and child.value.id in ['print', 'open']:
+                            side_effects.add(child.value.id)
+                        elif isinstance(child.value, ast.Attribute) and child.value.attr in ['write', 'read']:
+                            side_effects.add(child.value.attr)
+                
+                func_info['side_effects'] = list(side_effects)
+                functions.append(func_info)
+                
+                self.generic_visit(node)
+        
+        analyzer = FunctionAnalyzer()
+        analyzer.visit(tree)
+        return functions
+    
+    except Exception as e:
+        logger.error(f"Python analysis error: {e}")
+        return []
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
