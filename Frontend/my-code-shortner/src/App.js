@@ -1,12 +1,10 @@
 import { 
   ChakraProvider, 
   Box, 
-  Container, 
   Heading, 
   Textarea, 
   Button, 
   VStack, 
-  Code, 
   Alert, 
   Spinner, 
   useToast,
@@ -68,18 +66,6 @@ const useCodeShortener = () => {
   return { result, loading, shortenCode };
 };
 
-// Custom debounce hook
-const useDebounce = (value, delay) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-
-  return debouncedValue;
-};
-
 function App() {
   const { colorMode, toggleColorMode } = useColorMode();
   const [code, setCode] = useState('');
@@ -110,16 +96,6 @@ function App() {
   });
 
   // Keyboard shortcut handler
-  useEffect(() => {
-    const handleKeyPress = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        handleSubmit();
-      }
-    };
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [handleSubmit]);
-
   const handleSubmit = useCallback(() => {
     if (!code.trim() || code.trim().length < 10) {
       toast({
@@ -132,6 +108,16 @@ function App() {
     }
     shortenCode(code, compressionPercent);
   }, [code, compressionPercent, shortenCode, toast]);
+
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        handleSubmit();
+      }
+    };
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [handleSubmit]);
 
   const handleDownload = () => {
     const blob = new Blob([result?.shortened || ''], { type: 'text/plain' });
