@@ -18,7 +18,7 @@ from pathlib import Path
 import mimetypes
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
 
 load_dotenv()
 openai.api_key = "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"
@@ -321,11 +321,12 @@ def detect_language():
 @app.route('/shorten', methods=['POST'])
 def shorten():
     try:
-        code = request.json.get('code', '')
-        compression_percent = request.json.get('compressionPercent', 50)
+        data = request.get_json()
+        code = data.get('code')
+        compression_percent = data.get('compressionPercent')
         
         if not code:
-            return jsonify({'error': 'No code provided'}), 400
+            return jsonify({'error': 'Missing required "code" parameter'}), 400
             
         # Detect language using the detector instance
         language = detect_language_simple(code)
@@ -350,7 +351,7 @@ def shorten():
             'language': language
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/upgrade', methods=['POST'])
 def upgrade_code():
