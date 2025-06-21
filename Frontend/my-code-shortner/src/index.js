@@ -4,12 +4,15 @@ import { ChakraProvider } from '@chakra-ui/react';
 import App from './App';
 import { ColorModeScript } from '@chakra-ui/react';
 import theme from './theme';
+import { AuthProvider } from './context/AuthContext';
 
 ReactDOM.render(
   <React.StrictMode>
     <ChakraProvider>
       <ColorModeScript initialColorMode={theme.config.initialColorMode} />
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </ChakraProvider>
   </React.StrictMode>,
   document.getElementById('root')
