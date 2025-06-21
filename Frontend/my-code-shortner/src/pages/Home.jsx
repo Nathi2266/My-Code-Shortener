@@ -14,6 +14,7 @@ import {
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CopyIcon, SunIcon, MoonIcon } from '@chakra-ui/icons';
+import { useNavigate } from 'react-router-dom';
 
 const Home = () => {
   const [code, setCode] = useState('');
@@ -21,6 +22,7 @@ const Home = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { colorMode, toggleColorMode } = useColorMode();
   const toast = useToast();
+  const navigate = useNavigate();
 
   const handleApiCall = async (endpoint) => {
     if (!code.trim()) {
@@ -41,10 +43,19 @@ const Home = () => {
         body: JSON.stringify({ code: getSelectedText() || code })
       });
 
-      if (!response.ok) throw new Error('API request failed');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'API request failed');
+      }
       
       const data = await response.json();
-      setOutput(data.result || data.explanation);
+      
+      if (endpoint === 'analyze') {
+        navigate('/analysis', { state: { analysisData: data } });
+      } else {
+        setOutput(data.result || data.explanation);
+      }
+      
       toast({
         title: 'Success',
         status: 'success',
@@ -112,6 +123,14 @@ const Home = () => {
           loadingText="Explaining..."
         >
           Explain Code
+        </Button>
+        <Button
+          colorScheme="purple"
+          onClick={() => handleApiCall('analyze')}
+          isLoading={isLoading}
+          loadingText="Analyzing..."
+        >
+          Analyze Code
         </Button>
         <Button
           variant="outline"
