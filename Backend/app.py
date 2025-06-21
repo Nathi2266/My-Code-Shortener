@@ -5,7 +5,7 @@ import time
 import ast
 import astor
 import hashlib
-from functools import lru_cache
+from functools import lru_cache, wraps
 import subprocess
 import tempfile
 import os
@@ -18,6 +18,10 @@ from pathlib import Path
 import mimetypes
 import logging
 from collections import defaultdict
+import jwt
+from datetime import datetime, timedelta
+import secrets
+from support import db, init_db, User
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,10 @@ CODE_LENGTH_THRESHOLD = 5000
 # Initialize Flask app first
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
+app.config['SECRET_KEY'] = secrets.token_hex(32)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://nathii:20456@localhost/code_shortener')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+init_db(app)
 
 def fast_strip(code_str):
     """Quickly strip comments and blank lines from Python code"""
@@ -597,6 +605,134 @@ def analyze_code():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/profile', methods=['GET', 'PUT', 'DELETE'])
+def profile():
+    token = request.headers.get('Authorization', '').split('Bearer ')[-1]
+    try:
+        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        user = User.query.filter_by(email=payload['email']).first()
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        if request.method == 'GET':
+            return jsonify({
+                "name": user.name,
+                "email": user.email,
+                "apiKey": user.api_key,
+                "updatedAt": user.updated_at.isoformat()
+            })
+
+        elif request.method == 'PUT':
+            data = request.get_json()
+            user.name = data.get('name', user.name)
+            user.email = data.get('email', user.email)
+            db.session.commit()
+            return jsonify({"message": "Profile updated successfully"})
+
+        elif request.method == 'DELETE':
+            db.session.delete(user)
+            db.session.commit()
+            return jsonify({"message": "Account deleted successfully"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization', '').split('Bearer ')[-1]
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+            
+        try:
+            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            current_user = User.query.filter_by(email=payload['email']).first()
+            if not current_user:
+                raise ValueError('User not found')
+        except Exception as e:
+            return jsonify({'message': 'Token is invalid', 'error': str(e)}), 401
+            
+        return f(current_user, *args, **kwargs)
+    return decorated
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(email=data['email']).first()
+    
+    if not user or not user.check_password(data['password']):
+        return jsonify({'message': 'Invalid credentials'}), 401
+    
+    token = jwt.encode({
+        'email': user.email,
+        'exp': datetime.utcnow() + timedelta(hours=24)
+    }, app.config['SECRET_KEY'])
+    
+    return jsonify({
+        'token': token,
+        'user': {
+            'email': user.email,
+            'name': user.name
+        }
+    }), 200
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    try:
+        data = request.get_json()
+        if not data or 'email' not in data or 'password' not in data:
+            return jsonify({'message': 'Missing required fields'}), 400
+
+        if User.query.filter_by(email=data['email']).first():
+            return jsonify({'message': 'Email already registered'}), 400
+
+        new_user = User(
+            email=data['email'],
+            name=data.get('name', ''),
+        )
+        new_user.set_password(data['password'])
+        
+        db.session.add(new_user)
+        db.session.commit()
+
+        token = jwt.encode({
+            'email': new_user.email,
+            'exp': datetime.utcnow() + timedelta(hours=24)
+        }, app.config['SECRET_KEY'])
+
+        return jsonify({
+            'message': 'Registration successful',
+            'token': token,
+            'user': {
+                'email': new_user.email,
+                'name': new_user.name
+            }
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': str(e)}), 500
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    data = request.get_json()
+    user = User.query.filter_by(email=data['email']).first()
+    
+    if not user:
+        return jsonify({'message': 'If account exists, reset email sent'}), 200
+        
+    # Generate reset token (expires in 1 hour)
+    reset_token = jwt.encode({
+        'email': user.email,
+        'exp': datetime.utcnow() + timedelta(hours=1)
+    }, app.config['SECRET_KEY'])
+    
+    # TODO: Send email with reset link
+    print(f"Password reset link: http://localhost:3000/reset-password?token={reset_token}")
+    
+    return jsonify({'message': 'Reset instructions sent'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

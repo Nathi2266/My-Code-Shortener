@@ -9,7 +9,8 @@ import {
   useColorMode,
   Heading,
   IconButton,
-  Tooltip
+  Tooltip,
+  Text
 } from '@chakra-ui/react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -85,6 +86,22 @@ const Home = () => {
       handleApiCall('shorten');
     }
   };
+
+  if (output === '' && !code) {
+    return (
+      <Box p={6} textAlign="center">
+        <Heading size="xl" mb={4}>Welcome to Code Shortener</Heading>
+        <Text fontSize="lg" mb={6}>Paste your code to get started</Text>
+        <Button 
+          colorScheme="blue" 
+          size="lg"
+          onClick={() => setCode('// Start typing your code here...')}
+        >
+          Get Started
+        </Button>
+      </Box>
+    );
+  }
 
   return (
     <Box p={6} maxW="1200px" mx="auto">

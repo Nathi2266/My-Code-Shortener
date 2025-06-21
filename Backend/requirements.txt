@@ -8,3 +8,7 @@ autopep8>=2.0.0
 requests==2.31.0
 werkzeug==3.0.1
 python-magic==0.4.27
+python-jose[cryptography]
+flask-sqlalchemy
+psycopg2-binary
+pyjwt

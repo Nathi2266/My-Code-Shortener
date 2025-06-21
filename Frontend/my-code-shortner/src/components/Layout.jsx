@@ -1,6 +1,19 @@
-import { Outlet, Link } from 'react-router-dom';
-import { Flex, Box, Heading, Button, IconButton, useColorMode, useBreakpointValue, useColorModeValue } from '@chakra-ui/react';
+import { Outlet, Link, useRouteError } from 'react-router-dom';
+import { Flex, Box, Heading, Button, IconButton, useColorMode, useBreakpointValue, useColorModeValue, Alert, AlertIcon } from '@chakra-ui/react';
 import { MoonIcon, SunIcon } from '@chakra-ui/icons';
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  console.error(error);
+  return (
+    <Box p={4}>
+      <Alert status="error">
+        <AlertIcon />
+        {error.message || 'An unexpected error occurred'}
+      </Alert>
+    </Box>
+  );
+}
 
 const Layout = () => {
   const { colorMode, toggleColorMode } = useColorMode();
