@@ -16,6 +16,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CopyIcon, SunIcon, MoonIcon } from '@chakra-ui/icons';
 import { useNavigate } from 'react-router-dom';
+import '../Home.css'; // Import the new CSS file
 
 const Home = () => {
   const [code, setCode] = useState('');
@@ -203,6 +204,7 @@ const Home = () => {
 
       {shortenedUrl && (
         <Box 
+          className={`results-card ${fullCodeVisible ? 'expanded' : ''}`}
           borderWidth={1} 
           borderRadius="md" 
           p={4} 
@@ -211,44 +213,48 @@ const Home = () => {
           bg={colorMode === 'dark' ? 'gray.700' : 'white'}
           boxShadow="0 4px 8px rgba(0, 0, 0, 0.1)"
         >
-          <Heading size="md" mb={2} color={colorMode === 'dark' ? 'whiteAlpha.900' : 'gray.800'}>Your Shortened Code URL:</Heading>
-          <Text fontSize="lg" mb={2} wordBreak="break-all">
-            <a 
-              href={`${window.location.origin}/${shortenedUrl}`}
-              target="_blank" 
-              rel="noopener noreferrer"
-              style={{ color: colorMode === 'dark' ? 'blue.300' : 'blue.600' }} // Apply link color
-            >
-              {window.location.origin}/{shortenedUrl}
-            </a>
-          </Text>
-          <Button
-            size="sm"
-            colorScheme="teal"
-            onClick={() => {
-              navigator.clipboard.writeText(`${window.location.origin}/${shortenedUrl}`);
-              toast({
-                title: 'Copied!',
-                status: 'success',
-                duration: 2000,
-                isClosable: true,
-              });
-            }}
-          >
-            Copy URL
-          </Button>
-
-          <Button
-            size="sm"
-            colorScheme="gray"
-            mt={4} // Add margin-top for spacing
-            onClick={toggleFullCode}
-          >
-            {fullCodeVisible ? 'Hide Code' : 'Show Code'}
-          </Button>
+          <Heading size="md" mb={2} color={colorMode === 'dark' ? 'whiteAlpha.900' : 'gray.800'}>Shortened Code:</Heading>
+          <Flex className="preview" align="center" justify="space-between">
+            <Text fontSize="lg" wordBreak="break-all" flex="1" mr={4}>
+              <a 
+                href={`${window.location.origin}/${shortenedUrl}`}
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ color: colorMode === 'dark' ? 'blue.300' : 'blue.600' }} // Apply link color
+              >
+                {window.location.origin}/{shortenedUrl}
+              </a>
+            </Text>
+            <Flex>
+              <Button
+                size="sm"
+                colorScheme="teal"
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/${shortenedUrl}`);
+                  toast({
+                    title: 'Copied!',
+                    status: 'success',
+                    duration: 2000,
+                    isClosable: true,
+                  });
+                }}
+                mr={2}
+              >
+                Copy URL
+              </Button>
+              <Button
+                size="sm"
+                colorScheme="gray"
+                onClick={toggleFullCode}
+              >
+                {fullCodeVisible ? 'Collapse' : 'Expand'}
+              </Button>
+            </Flex>
+          </Flex>
 
           {fullCodeVisible && (
             <Box
+              className="expanded-view"
               mt={4} 
               p={4} 
               borderWidth={1} 
@@ -256,6 +262,7 @@ const Home = () => {
               bg={colorMode === 'dark' ? 'gray.800' : 'gray.50'}
               overflowX="auto"
             >
+              <Heading size="sm" mb={2}>Original Code:</Heading>
               <SyntaxHighlighter 
                 language="javascript" // Assuming the code is JavaScript, adjust as needed
                 style={colorMode === 'dark' ? atomDark : prism}
