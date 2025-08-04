@@ -69,9 +69,7 @@ my-code-shortner/
 ## Key Features
 
 -   **Responsive Layout:** Utilizes `Layout.jsx` and potentially Material-UI for a consistent and responsive user interface across devices.
--   **Authentication Flow:** Manages user login, registration, and session persistence via `AuthContext.jsx` and integration with backend authentication endpoints.
--   **Dynamic Routing:** Handles navigation between different application pages (`Home`, `Login`, `Profile`, `Analysis`, `Docs`, `Sessions`, `Register`) using `Routes.jsx`.
+-   **Dynamic Routing:** Handles navigation between different application pages (`Home`, `Analysis`, `Docs`, `Sessions`) using `Routes.jsx`.
 -   **Code Shortening Interface:** Provides a user interface to input code, select compression options, and display shortened results.
 -   **Code Analysis & Visualization:** (Assumed based on `Analysis.jsx`) Presents statistics and insights about original and shortened code.
--   **User Profile Management:** Allows users to view and update their profile information.
 -   **Theming:** Centralized theme management via `theme.js` for consistent styling.

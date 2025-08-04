@@ -21,7 +21,6 @@ from collections import defaultdict
 import jwt
 from datetime import datetime, timedelta
 import secrets
-from support import db, init_db, User
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +31,39 @@ CODE_LENGTH_THRESHOLD = 5000
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 app.config['SECRET_KEY'] = secrets.token_hex(32)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://nathii:20456@localhost/code_shortener')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-init_db(app)
+
+# In-memory database for snippets (for demonstration purposes)
+# In a real application, this would be replaced with a persistent database
+snippets_db = {} 
+
+# User database (for demonstration purposes)
+users_db = {
+    "user1@example.com": {"password": "hashed_password_1", "user_id": "user1"},
+    "user2@example.com": {"password": "hashed_password_2", "user_id": "user2"}
+}
+
+def generate_short_id():
+    """Generates a unique short ID for snippets."""
+    return secrets.token_urlsafe(6)
+
+def jwt_required(f):
+    """
+    Decorator to protect API routes, ensuring a valid JWT is present.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'x-access-token' in request.headers:
+            token = request.headers['x-access-token']
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user = data['user_id']
+        except Exception as e:
+            return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
+        return f(current_user, *args, **kwargs)
+    return decorated
 
 def fast_strip(code_str):
     """Quickly strip comments and blank lines from Python code"""
@@ -95,6 +124,16 @@ def minify_python(code):
     except Exception as e:
         print(f"Error minifying Python code: {e}")
         return code
+
+def minify_js(code: str) -> str:
+    """Placeholder for JavaScript minification."""
+    # You would implement actual JavaScript minification logic here
+    return code
+
+def minify_java(code: str) -> str:
+    """Placeholder for Java minification."""
+    # You would implement actual Java minification logic here
+    return code
 
 def detect_language_simple(code):
     """Simple language detection based on code patterns"""
@@ -437,6 +476,112 @@ def process_zip():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/auth/login', methods=['POST'])
+def login_user():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+
+        user = users_db.get(email)
+
+        if not user or user['password'] != password:  # In a real app, use hashed passwords
+            return jsonify({'message': 'Invalid credentials'}), 401
+
+        token = jwt.encode({
+            'user_id': user['user_id'],
+            'exp': datetime.utcnow() + timedelta(minutes=30)  # Token expires in 30 minutes
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+
+        return jsonify({'token': token})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/snippets', methods=['POST'])
+@jwt_required
+def create_snippet(current_user):
+    try:
+        data = request.get_json()
+        code = data.get('code')
+        language = data.get('language')
+        title = data.get('title', 'Untitled Snippet')
+
+        if not code:
+            return jsonify({'message': 'Code is required'}), 400
+
+        short_id = generate_short_id()
+        created_at = datetime.utcnow().isoformat()
+
+        snippets_db[short_id] = {
+            'short_id': short_id,
+            'user_id': current_user,
+            'code': code,
+            'language': language,
+            'title': title,
+            'created_at': created_at,
+            'updated_at': created_at
+        }
+        return jsonify({'message': 'Snippet created', 'snippet': snippets_db[short_id]}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/snippets', methods=['GET'])
+@jwt_required
+def get_user_snippets(current_user):
+    try:
+        user_snippets = [
+            snippet for snippet in snippets_db.values()
+            if snippet['user_id'] == current_user
+        ]
+        return jsonify(user_snippets), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/snippets/<short_id>', methods=['PUT'])
+@jwt_required
+def edit_snippet(current_user, short_id):
+    try:
+        data = request.get_json()
+        new_code = data.get('code')
+        new_title = data.get('title')
+
+        snippet = snippets_db.get(short_id)
+
+        if not snippet:
+            return jsonify({'message': 'Snippet not found'}), 404
+
+        if snippet['user_id'] != current_user:
+            return jsonify({'message': 'Unauthorized to edit this snippet'}), 403
+
+        if new_code:
+            snippet['code'] = new_code
+        if new_title:
+            snippet['title'] = new_title
+        snippet['updated_at'] = datetime.utcnow().isoformat()
+
+        return jsonify({'message': 'Snippet updated', 'snippet': snippet}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/snippets/<short_id>', methods=['DELETE'])
+@jwt_required
+def delete_snippet(current_user, short_id):
+    try:
+        snippet = snippets_db.get(short_id)
+
+        if not snippet:
+            return jsonify({'message': 'Snippet not found'}), 404
+
+        if snippet['user_id'] != current_user:
+            return jsonify({'message': 'Unauthorized to delete this snippet'}), 403
+
+        del snippets_db[short_id]
+        return jsonify({'message': 'Snippet deleted'}), 204
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/metrics', methods=['POST'])
 def track_metrics():
     data = request.get_json()
@@ -492,6 +637,15 @@ def summarize_functions():
             'warnings': []
         }), 500
 
+def parse_ai_response(response_content: str) -> List[Dict]:
+    """
+    Parses the string content from the AI response into a structured format.
+    This is a placeholder and should be implemented to correctly parse the AI's output.
+    """
+    # Example: In a real scenario, you might parse JSON or a specific text format
+    print(f"AI Response Content to Parse: {response_content}") # For debugging
+    return [] # Return an empty list for now, or a dummy structure if you know the expected format.
+
 def generate_ai_summaries(code: str) -> List[Dict]:
     """Use OpenAI API to generate function summaries and refactoring suggestions"""
     client = openai.OpenAI()
@@ -517,6 +671,17 @@ def merge_summaries(static_summaries: List[Dict], ai_summaries: List[Dict]) -> L
     """Merge results from static and AI analysis"""
     # Implementation logic to merge analyses
     return static_summaries  # Simplified for example
+
+def parse_functions(code: str) -> List[Dict]:
+    """
+    Parses the code to extract function information based on detected language.
+    This acts as a dispatcher to language-specific analysis functions.
+    """
+    language = detect_language_simple(code)
+    if language == 'Python':
+        return analyze_python_functions(code)
+    # Add more language handlers here as needed
+    return [] # Return empty for unsupported languages or if no functions are found
 
 def analyze_code_structure(code: str) -> List[Dict]:
     """Enhanced static code analysis"""
@@ -605,134 +770,6 @@ def analyze_code():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@app.route('/api/profile', methods=['GET', 'PUT', 'DELETE'])
-def profile():
-    token = request.headers.get('Authorization', '').split('Bearer ')[-1]
-    try:
-        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-        user = User.query.filter_by(email=payload['email']).first()
-        
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-            
-        if request.method == 'GET':
-            return jsonify({
-                "name": user.name,
-                "email": user.email,
-                "apiKey": user.api_key,
-                "updatedAt": user.updated_at.isoformat()
-            })
-
-        elif request.method == 'PUT':
-            data = request.get_json()
-            user.name = data.get('name', user.name)
-            user.email = data.get('email', user.email)
-            db.session.commit()
-            return jsonify({"message": "Profile updated successfully"})
-
-        elif request.method == 'DELETE':
-            db.session.delete(user)
-            db.session.commit()
-            return jsonify({"message": "Account deleted successfully"})
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 401
-
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization', '').split('Bearer ')[-1]
-        if not token:
-            return jsonify({'message': 'Token is missing'}), 401
-            
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            current_user = User.query.filter_by(email=payload['email']).first()
-            if not current_user:
-                raise ValueError('User not found')
-        except Exception as e:
-            return jsonify({'message': 'Token is invalid', 'error': str(e)}), 401
-            
-        return f(current_user, *args, **kwargs)
-    return decorated
-
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    user = User.query.filter_by(email=data['email']).first()
-    
-    if not user or not user.check_password(data['password']):
-        return jsonify({'message': 'Invalid credentials'}), 401
-    
-    token = jwt.encode({
-        'email': user.email,
-        'exp': datetime.utcnow() + timedelta(hours=24)
-    }, app.config['SECRET_KEY'])
-    
-    return jsonify({
-        'token': token,
-        'user': {
-            'email': user.email,
-            'name': user.name
-        }
-    }), 200
-
-@app.route('/api/auth/register', methods=['POST'])
-def register():
-    try:
-        data = request.get_json()
-        if not data or 'email' not in data or 'password' not in data:
-            return jsonify({'message': 'Missing required fields'}), 400
-
-        if User.query.filter_by(email=data['email']).first():
-            return jsonify({'message': 'Email already registered'}), 400
-
-        new_user = User(
-            email=data['email'],
-            name=data.get('name', ''),
-        )
-        new_user.set_password(data['password'])
-        
-        db.session.add(new_user)
-        db.session.commit()
-
-        token = jwt.encode({
-            'email': new_user.email,
-            'exp': datetime.utcnow() + timedelta(hours=24)
-        }, app.config['SECRET_KEY'])
-
-        return jsonify({
-            'message': 'Registration successful',
-            'token': token,
-            'user': {
-                'email': new_user.email,
-                'name': new_user.name
-            }
-        }), 201
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'message': str(e)}), 500
-
-@app.route('/api/auth/reset-password', methods=['POST'])
-def reset_password():
-    data = request.get_json()
-    user = User.query.filter_by(email=data['email']).first()
-    
-    if not user:
-        return jsonify({'message': 'If account exists, reset email sent'}), 200
-        
-    # Generate reset token (expires in 1 hour)
-    reset_token = jwt.encode({
-        'email': user.email,
-        'exp': datetime.utcnow() + timedelta(hours=1)
-    }, app.config['SECRET_KEY'])
-    
-    # TODO: Send email with reset link
-    print(f"Password reset link: http://localhost:3000/reset-password?token={reset_token}")
-    
-    return jsonify({'message': 'Reset instructions sent'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
