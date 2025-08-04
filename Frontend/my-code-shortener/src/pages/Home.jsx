@@ -220,7 +220,7 @@ const Home = () => {
                 href={`${window.location.origin}/${shortenedUrl}`}
                 target="_blank" 
                 rel="noopener noreferrer"
-                style={{ color: colorMode === 'dark' ? 'blue.300' : 'blue.600' }} // Apply link color
+                style={{ color: colorMode === 'dark' ? 'blue.300' : 'blue.600', fontWeight: 'bold' }} // Apply link color and bold font
               >
                 {window.location.origin}/{shortenedUrl}
               </a>
@@ -230,9 +230,9 @@ const Home = () => {
                 size="sm"
                 colorScheme="teal"
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/${shortenedUrl}`);
+                  navigator.clipboard.writeText(shortenedUrl); // Changed to copy only the shortened URL
                   toast({
-                    title: 'Copied!',
+                    title: 'Copied short code!',
                     status: 'success',
                     duration: 2000,
                     isClosable: true,
@@ -240,7 +240,7 @@ const Home = () => {
                 }}
                 mr={2}
               >
-                Copy URL
+                Copy Short Code
               </Button>
               <Button
                 size="sm"
