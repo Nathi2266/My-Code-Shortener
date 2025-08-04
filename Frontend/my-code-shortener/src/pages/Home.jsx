@@ -109,7 +109,7 @@ const Home = () => {
         <Button 
           colorScheme="blue" 
           size="lg"
-          onClick={() => setCode('// Start typing your code here...')}
+          onClick={() => setCode(' ')}
         >
           Get Started
         </Button>
@@ -215,15 +215,25 @@ const Home = () => {
         >
           <Heading size="md" mb={2} color={colorMode === 'dark' ? 'whiteAlpha.900' : 'gray.800'}>Shortened Code:</Heading>
           <Flex className="preview" align="center" justify="space-between">
-            <Text fontSize="lg" wordBreak="break-all" flex="1" mr={4}>
-              <a 
-                href={`${window.location.origin}/${shortenedUrl}`}
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{ color: colorMode === 'dark' ? 'blue.300' : 'blue.600', fontWeight: 'bold' }} // Apply link color and bold font
-              >
-                {window.location.origin}/{shortenedUrl}
-              </a>
+            <Text 
+              fontSize="lg" 
+              wordBreak="break-all" 
+              flex="1" 
+              mr={4}
+              fontWeight="bold"
+              color={colorMode === 'dark' ? 'blue.300' : 'blue.600'} // Apply link color
+              cursor="pointer" // Indicate it's clickable
+              onClick={() => {
+                navigator.clipboard.writeText(shortenedUrl);
+                toast({
+                  title: 'Copied short code!',
+                  status: 'success',
+                  duration: 2000,
+                  isClosable: true,
+                });
+              }}
+            >
+              {window.location.origin}/{shortenedUrl}
             </Text>
             <Flex>
               <Button

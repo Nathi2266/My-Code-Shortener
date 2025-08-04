@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import os
 import openai
+import json
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import zipfile
@@ -21,6 +22,9 @@ from collections import defaultdict
 import jwt
 from datetime import datetime, timedelta
 import secrets
+from pygments.lexers import guess_lexer_for_filename, get_lexer_by_name
+from pygments.util import ClassNotFound
+# from your_analysis_tools import analyze_python_code, analyze_javascript_code # hypothetical functions
 
 logger = logging.getLogger(__name__)
 
@@ -602,6 +606,7 @@ def explain_code():
 def summarize_functions():
     try:
         code = request.json['code']
+
         analysis_results = {
             'status': 'success',
             'data': {'summaries': []},
@@ -626,8 +631,8 @@ def summarize_functions():
                 )
         except Exception as e:
             analysis_results['warnings'].append(f'AI analysis failed: {str(e)}')
-
-        return jsonify(analysis_results)
+        
+        return jsonify(analysis_results), 200
 
     except Exception as e:
         return jsonify({
@@ -747,29 +752,47 @@ def analyze_python_functions(code):
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_code():
+    code_snippet = request.json.get('code')
+    if not code_snippet:
+        return jsonify({'error': 'No code provided'}), 400
+
+    language = 'unknown'
     try:
-        code = request.json['code']
-        return jsonify({
-            'functions': [
-                {
-                    'name': 'main',
-                    'params': [],
-                    'returns': 'void',
-                    'summary': 'Entry point of the program'
-                }
-            ],
-            'complexity': {
-                'cyclomatic': 4,
-                'estimated_runtime': 'O(n)',
-                'nesting_depth': 2
-            },
-            'suggestions': [
-                "Consider breaking down large functions",
-                "Add type annotations for better clarity"
-            ]
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # Pygments requires a filename to guess the lexer correctly
+        # We use a dummy filename to give it a hint
+        lexer = guess_lexer_for_filename('temp.txt', code_snippet)
+        language = lexer.aliases[0]
+    except (ClassNotFound, IndexError):
+        # If Pygments can't determine the language, we default to 'unknown'
+        language = 'unknown'
+
+    analysis_results = {'language': language}
+
+    # Now, based on the detected language, call the appropriate analysis function
+    if language == 'python':
+        analysis_results.update(analyze_python_code(code_snippet))
+    elif language == 'javascript':
+        analysis_results.update(analyze_javascript_code(code_snippet))
+    else:
+        # A simple response for unsupported languages
+        analysis_results.update({'message': f'Analysis for {language} is not supported.'})
+
+    return jsonify(analysis_results)
+
+# A sample analysis function that can be implemented for a specific language
+def analyze_python_code(code):
+    # This is where you'd integrate tools like Radon or Pylint
+    # Example using Radon (you would need to write code to execute and parse)
+    # import subprocess
+    # with open('temp_code.py', 'w') as f:
+    #     f.write(code)
+    # result = subprocess.run(['radon', 'cc', 'temp_code.py'], capture_output=True, text=True)
+    # ... and so on
+    return {
+        'complexity': 10,
+        'maintainability': 85,
+        'suggestions': ['Add docstrings to functions.']
+    }
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
