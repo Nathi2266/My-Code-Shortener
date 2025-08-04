@@ -34,7 +34,12 @@ CODE_LENGTH_THRESHOLD = 5000
 # Initialize Flask app first
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
-app.config['SECRET_KEY'] = secrets.token_hex(32)
+
+# Load SECRET_KEY from environment variable, or generate a new one if not set
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+if not app.config['SECRET_KEY']:
+    app.config['SECRET_KEY'] = secrets.token_hex(32)
+    logger.warning("SECRET_KEY not set in environment, generating a new one. This will invalidate existing tokens on restart. For production, set a persistent SECRET_KEY environment variable.")
 
 # In-memory database for snippets (for demonstration purposes)
 # In a real application, this would be replaced with a persistent database
@@ -383,14 +388,18 @@ def shorten():
             return jsonify({"error": "No code provided"}), 400
 
         # Language-specific minification
-        if lang == "python":
-            compressed = minify_python(code)
-        elif lang == "javascript":
-            compressed = minify_js(code)
-        elif lang == "java":
-            compressed = minify_java(code)
-        else:
-            return jsonify({"error": "Unsupported language"}), 415
+        try:
+            if lang == "python":
+                compressed = minify_python(code)
+            elif lang == "javascript":
+                compressed = minify_js(code)
+            elif lang == "java":
+                compressed = minify_java(code)
+            else:
+                return jsonify({"error": "Unsupported language"}), 415
+        except Exception as e:
+            logger.error(f"Error during minification for language {lang}: {str(e)}")
+            return jsonify({"error": f"Minification failed for {lang}: {str(e)}"}), 500
 
         return jsonify({
             "original": code,
@@ -793,6 +802,9 @@ def analyze_python_code(code):
         'maintainability': 85,
         'suggestions': ['Add docstrings to functions.']
     }
+
+def analyze_javascript_code(code):
+    return {"analysis": "JavaScript code analysis results go here."}
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
