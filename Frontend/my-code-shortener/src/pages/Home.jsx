@@ -24,6 +24,8 @@ const Home = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const toast = useToast();
   const navigate = useNavigate();
+  const [shortenedUrl, setShortenedUrl] = useState(null); // New state for shortened URL
+  const [fullCodeVisible, setFullCodeVisible] = useState(false); // New state for dropdown visibility
 
   const handleApiCall = async (endpoint) => {
     if (!code.trim()) {
@@ -56,7 +58,14 @@ const Home = () => {
       } else {
         setOutput(data.result || data.explanation);
       }
-      
+
+      if (endpoint === 'shorten') {
+        setShortenedUrl(data.shortened); // Assuming the shortened URL is in data.shortened
+        setFullCodeVisible(false); // Hide the code dropdown when a new URL is generated
+      } else {
+        setShortenedUrl(null); // Clear shortened URL if not a shorten operation
+      }
+
       toast({
         title: 'Success',
         status: 'success',
@@ -78,6 +87,10 @@ const Home = () => {
   const getSelectedText = () => {
     const textarea = document.querySelector('textarea');
     return textarea.value.substring(textarea.selectionStart, textarea.selectionEnd);
+  };
+
+  const toggleFullCode = () => {
+    setFullCodeVisible(!fullCodeVisible); // Toggle the state
   };
 
   const handleKeyDown = (e) => {
@@ -185,6 +198,73 @@ const Home = () => {
           >
             {output}
           </SyntaxHighlighter>
+        </Box>
+      )}
+
+      {shortenedUrl && (
+        <Box 
+          borderWidth={1} 
+          borderRadius="md" 
+          p={4} 
+          mt={4} // Add margin-top for spacing
+          position="relative"
+          bg={colorMode === 'dark' ? 'gray.700' : 'white'}
+          boxShadow="0 4px 8px rgba(0, 0, 0, 0.1)"
+        >
+          <Heading size="md" mb={2} color={colorMode === 'dark' ? 'whiteAlpha.900' : 'gray.800'}>Your Shortened Code URL:</Heading>
+          <Text fontSize="lg" mb={2} wordBreak="break-all">
+            <a 
+              href={`${window.location.origin}/${shortenedUrl}`}
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{ color: colorMode === 'dark' ? 'blue.300' : 'blue.600' }} // Apply link color
+            >
+              {window.location.origin}/{shortenedUrl}
+            </a>
+          </Text>
+          <Button
+            size="sm"
+            colorScheme="teal"
+            onClick={() => {
+              navigator.clipboard.writeText(`${window.location.origin}/${shortenedUrl}`);
+              toast({
+                title: 'Copied!',
+                status: 'success',
+                duration: 2000,
+                isClosable: true,
+              });
+            }}
+          >
+            Copy URL
+          </Button>
+
+          <Button
+            size="sm"
+            colorScheme="gray"
+            mt={4} // Add margin-top for spacing
+            onClick={toggleFullCode}
+          >
+            {fullCodeVisible ? 'Hide Code' : 'Show Code'}
+          </Button>
+
+          {fullCodeVisible && (
+            <Box
+              mt={4} 
+              p={4} 
+              borderWidth={1} 
+              borderRadius="md" 
+              bg={colorMode === 'dark' ? 'gray.800' : 'gray.50'}
+              overflowX="auto"
+            >
+              <SyntaxHighlighter 
+                language="javascript" // Assuming the code is JavaScript, adjust as needed
+                style={colorMode === 'dark' ? atomDark : prism}
+                customStyle={{ background: 'none', padding: 0 }}
+              >
+                {code}
+              </SyntaxHighlighter>
+            </Box>
+          )}
         </Box>
       )}
 
