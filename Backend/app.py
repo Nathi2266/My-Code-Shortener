@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import re
 import time
@@ -24,12 +24,16 @@ from datetime import datetime, timedelta
 import secrets
 from pygments.lexers import guess_lexer_for_filename, get_lexer_by_name
 from pygments.util import ClassNotFound
+import concurrent.futures
 # from your_analysis_tools import analyze_python_code, analyze_javascript_code # hypothetical functions
 
 logger = logging.getLogger(__name__)
 
 # Constants
 CODE_LENGTH_THRESHOLD = 5000
+MASKING_SUPPORTED_EXTENSIONS = {
+	'.txt', '.js', '.py', '.env', '.json', '.yml', '.yaml', '.html', '.php', '.java', '.c', '.cpp'
+}
 
 # Initialize Flask app first
 app = Flask(__name__)
@@ -363,6 +367,288 @@ def process_zip_file(zip_data):
                 })
     
     return results
+
+# ===================== Sensitive Data Masking =====================
+
+# Thread pool for async processing
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+# In-memory job store; only masked outputs are stored
+masking_jobs = {}
+
+def _mask_keep_last(value: str, keep: int = 4) -> str:
+    if not value:
+        return value
+    if len(value) <= keep:
+        return '*' * len(value)
+    return '*' * (len(value) - keep) + value[-keep:]
+
+def _mask_keep_prefix_and_last(value: str, prefix_len: int = 0, keep_last: int = 4) -> str:
+    if not value:
+        return value
+    prefix = value[:prefix_len]
+    remainder = value[prefix_len:]
+    return f"{prefix}{_mask_keep_last(remainder, keep_last)}"
+
+def get_masking_patterns():
+    # Compiled regex patterns with masking strategies
+    patterns = [
+        {
+            'name': 'OpenAI API Key',
+            'regex': re.compile(r"\b(sk-[A-Za-z0-9]{20,})\b"),
+            'mask': lambda m: _mask_keep_prefix_and_last(m.group(1), prefix_len=3, keep_last=4)
+        },
+        {
+            'name': 'AWS Access Key ID',
+            'regex': re.compile(r"\b((?:AKIA|ASIA|ANPA)[A-Z0-9]{16})\b"),
+            'mask': lambda m: _mask_keep_last(m.group(1), keep=4)
+        },
+        {
+            'name': 'AWS Secret Access Key',
+            'regex': re.compile(r"(?i)(aws_?secret_?access_?key\s*[:=]\s*[\"\']?)([A-Za-z0-9/+=]{40})([\"\']?)"),
+            'mask': lambda m: f"{m.group(1)}{'*' * 8}{m.group(3)}"
+        },
+        {
+            'name': 'Private Key Block',
+            'regex': re.compile(r"(-----BEGIN [A-Z ]*PRIVATE KEY-----)([\s\S]*?)(-----END [A-Z ]*PRIVATE KEY-----)", re.MULTILINE),
+            'mask': lambda m: f"{m.group(1)}\n***MASKED PRIVATE KEY***\n{m.group(3)}"
+        },
+        {
+            'name': 'Bearer JWT Token',
+            'regex': re.compile(r"(?i)(Bearer\s+)([A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+)"),
+            'mask': lambda m: f"{m.group(1)}***.***.***"
+        },
+        {
+            'name': 'Password Assignment',
+            'regex': re.compile(r"(?i)(?:\b(password|pwd|pass|db_pass|db_password)\b\s*[:=]\s*)([\"\']?)([^\n\"\']+)(\2)"),
+            'mask': lambda m: re.sub(re.escape(m.group(3)), '********', m.group(0))
+        },
+        {
+            'name': 'Generic Token/Secret Assignment',
+            'regex': re.compile(r"(?i)(?:\b(token|secret|api[_-]?key|access[_-]?token)\b\s*[:=]\s*)([\"\']?)([A-Za-z0-9._-]{8,})(\2)"),
+            'mask': lambda m: re.sub(re.escape(m.group(3)), _mask_keep_last(m.group(3), 4), m.group(0))
+        },
+        {
+            'name': 'URL Credential Parameter',
+            'regex': re.compile(r"(?i)([?&](?:api[_-]?key|access[_-]?token|token|key)=)([^&\s]+)"),
+            'mask': lambda m: f"{m.group(1)}{'*' * 8}"
+        },
+        {
+            'name': '.env Sensitive Variable',
+            'regex': re.compile(r"(?im)^(\s*[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASS|API_KEY|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|OPENAI_API_KEY)[A-Z0-9_]*\s*=\s*)(.+)$"),
+            'mask': lambda m: f"{m.group(1)}********"
+        },
+    ]
+    return patterns
+
+def mask_sensitive_content(filename: str, text: str) -> dict:
+    # Only process if supported extension
+    suffix = Path(filename).suffix.lower()
+    if suffix and suffix not in MASKING_SUPPORTED_EXTENSIONS:
+        return {
+            'filename': filename,
+            'masked_text': text,
+            'detections': [],
+            'masked': False
+        }
+
+    masked_text = text
+    detections_map = {}
+
+    for rule in get_masking_patterns():
+        def _replace(match):
+            masked_segment = rule['mask'](match)
+            detections_map[rule['name']] = detections_map.get(rule['name'], 0) + 1
+            return masked_segment
+        masked_text, num = rule['regex'].subn(_replace, masked_text)
+
+    detections = [{'type': k, 'count': v} for k, v in detections_map.items()]
+    return {
+        'filename': filename,
+        'masked_text': masked_text,
+        'detections': detections,
+        'masked': len(detections) > 0
+    }
+
+def process_zip_for_masking(zip_bytes: bytes) -> dict:
+    in_mem = io.BytesIO(zip_bytes)
+    report = {'files': [], 'summary': {'total_files': 0, 'files_masked': 0, 'detections_by_type': {}}}
+    out_zip_mem = io.BytesIO()
+
+    with zipfile.ZipFile(in_mem, 'r') as zin, zipfile.ZipFile(out_zip_mem, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            if info.is_dir():
+                continue
+            filename = info.filename
+            report['summary']['total_files'] += 1
+
+            try:
+                data = zin.read(info.filename)
+                suffix = Path(filename).suffix.lower()
+                if suffix and suffix in MASKING_SUPPORTED_EXTENSIONS:
+                    try:
+                        text = data.decode('utf-8')
+                    except Exception:
+                        # Fallback to latin-1 for text-like files
+                        text = data.decode('latin-1')
+
+                    result = mask_sensitive_content(filename, text)
+                    file_detections = result['detections']
+                    if result['masked']:
+                        report['summary']['files_masked'] += 1
+                        for det in file_detections:
+                            report['summary']['detections_by_type'][det['type']] = report['summary']['detections_by_type'].get(det['type'], 0) + det['count']
+
+                    report['files'].append({
+                        'filename': filename,
+                        'masked': result['masked'],
+                        'detections': file_detections
+                    })
+
+                    # Write masked text back preserving filename
+                    zout.writestr(filename, result['masked_text'])
+                else:
+                    # Not a supported text file; copy as-is and record as unprocessed
+                    report['files'].append({
+                        'filename': filename,
+                        'masked': False,
+                        'detections': []
+                    })
+                    zout.writestr(filename, data)
+            except Exception as e:
+                # Write original file back unchanged on error, but do not log sensitive content
+                report['files'].append({
+                    'filename': filename,
+                    'masked': False,
+                    'error': 'processing_error'
+                })
+                try:
+                    zout.writestr(filename, data)
+                except Exception:
+                    # Skip if even writing fails
+                    pass
+
+    out_zip_mem.seek(0)
+    return {'zip_bytes': out_zip_mem.read(), 'report': report}
+
+def process_single_file_for_masking(filename: str, file_bytes: bytes) -> dict:
+    try:
+        try:
+            text = file_bytes.decode('utf-8')
+        except Exception:
+            text = file_bytes.decode('latin-1')
+
+        result = mask_sensitive_content(filename, text)
+        report = {
+            'files': [{
+                'filename': filename,
+                'masked': result['masked'],
+                'detections': result['detections']
+            }],
+            'summary': {
+                'total_files': 1,
+                'files_masked': 1 if result['masked'] else 0,
+                'detections_by_type': {det['type']: det['count'] for det in result['detections']}
+            }
+        }
+
+        # Return as a zip with the single masked file and JSON report
+        out_zip_mem = io.BytesIO()
+        with zipfile.ZipFile(out_zip_mem, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+            zout.writestr(filename, result['masked_text'])
+        out_zip_mem.seek(0)
+        return {'zip_bytes': out_zip_mem.read(), 'report': report}
+    except Exception:
+        # On failure, return the original bytes zipped without logging content
+        out_zip_mem = io.BytesIO()
+        with zipfile.ZipFile(out_zip_mem, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+            zout.writestr(filename, file_bytes)
+        out_zip_mem.seek(0)
+        return {'zip_bytes': out_zip_mem.read(), 'report': {'files': [{'filename': filename, 'masked': False, 'error': 'processing_error'}], 'summary': {'total_files': 1, 'files_masked': 0, 'detections_by_type': {}}}}
+
+def _run_masking_job(job_id: str, original_filename: str, upload_bytes: bytes):
+    try:
+        masking_jobs[job_id]['status'] = 'processing'
+        # Decide if input is a zip
+        is_zip = False
+        try:
+            is_zip = zipfile.is_zipfile(io.BytesIO(upload_bytes))
+        except Exception:
+            is_zip = False
+
+        if is_zip:
+            result = process_zip_for_masking(upload_bytes)
+        else:
+            result = process_single_file_for_masking(original_filename, upload_bytes)
+
+        # Append a masking_report.json inside the zip
+        zip_with_report = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(result['zip_bytes']), 'r') as base_zip, zipfile.ZipFile(zip_with_report, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+            # Copy all files
+            for info in base_zip.infolist():
+                if info.is_dir():
+                    continue
+                data = base_zip.read(info.filename)
+                zout.writestr(info.filename, data)
+            # Add report as JSON
+            zout.writestr('masking_report.json', json.dumps(result['report'], indent=2))
+
+        zip_with_report.seek(0)
+        masking_jobs[job_id]['status'] = 'done'
+        masking_jobs[job_id]['result_zip'] = zip_with_report.read()
+        masking_jobs[job_id]['report'] = result['report']
+    except Exception as e:
+        masking_jobs[job_id]['status'] = 'error'
+        masking_jobs[job_id]['error'] = 'processing_error'
+
+@app.route('/api/mask/upload', methods=['POST'])
+def upload_for_masking():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+
+        f = request.files['file']
+        filename = f.filename or 'upload'
+        upload_bytes = f.read()
+
+        job_id = secrets.token_urlsafe(16)
+        masking_jobs[job_id] = {
+            'status': 'queued',
+            'created_at': datetime.utcnow().isoformat(),
+            'original_name': filename
+        }
+
+        executor.submit(_run_masking_job, job_id, filename, upload_bytes)
+        return jsonify({'job_id': job_id, 'status': 'queued'})
+    except Exception:
+        return jsonify({'error': 'upload_error'}), 500
+
+@app.route('/api/mask/status/<job_id>', methods=['GET'])
+def masking_status(job_id):
+    job = masking_jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'not_found'}), 404
+    safe = {'status': job['status'], 'created_at': job.get('created_at')}
+    if job['status'] == 'done':
+        safe['report'] = job.get('report', {})
+    if job['status'] == 'error':
+        safe['error'] = job.get('error', 'processing_error')
+    return jsonify(safe)
+
+@app.route('/api/mask/download/<job_id>', methods=['GET'])
+def masking_download(job_id):
+    job = masking_jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'not_found'}), 404
+    if job.get('status') != 'done':
+        return jsonify({'error': 'not_ready'}), 409
+    result_zip = job.get('result_zip')
+    if not result_zip:
+        return jsonify({'error': 'missing_result'}), 500
+    mem = io.BytesIO(result_zip)
+    mem.seek(0)
+    download_name = f"masked_{job.get('original_name', 'files')}.zip"
+    return send_file(mem, mimetype='application/zip', as_attachment=True, download_name=download_name)
 
 @app.route('/detect', methods=['POST'])
 def detect_language():

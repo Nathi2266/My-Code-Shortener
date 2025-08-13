@@ -34,10 +34,6 @@ const Layout = () => {
           {!isMobile && (
             <>
               <Button as={Link} to="/" variant="ghost">Playground</Button>
-              <Button as={Link} to="/analysis" variant="ghost">Analysis</Button>
-              <Button as={Link} to="/sessions" variant="ghost">Sessions</Button>
-              <Button as={Link} to="/docs" variant="ghost">Docs</Button>
-              <Button as={Link} to="/profile" variant="ghost">Profile</Button>
             </>
           )}
           <IconButton
