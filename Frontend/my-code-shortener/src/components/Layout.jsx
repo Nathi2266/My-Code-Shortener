@@ -1,5 +1,6 @@
-import { Outlet, Link, useRouteError } from 'react-router-dom';
+import { Outlet, Link, useNavigate, useRouteError } from 'react-router-dom';
 import { Flex, Box, Heading, Button, IconButton, useColorMode, useBreakpointValue, useColorModeValue, Alert, AlertIcon } from '@chakra-ui/react';
+import { useAuth } from '../context/AuthContext';
 import { MoonIcon, SunIcon } from '@chakra-ui/icons';
 
 export function ErrorBoundary() {
@@ -18,6 +19,8 @@ export function ErrorBoundary() {
 const Layout = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const isMobile = useBreakpointValue({ base: true, md: false });
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <Flex direction="column" minH="100vh">
@@ -34,6 +37,9 @@ const Layout = () => {
           {!isMobile && (
             <>
               <Button as={Link} to="/" variant="ghost">Playground</Button>
+              {!user && <Button as={Link} to="/login" variant="ghost">Login</Button>}
+              {!user && <Button as={Link} to="/register" variant="ghost">Register</Button>}
+              {user && <Button onClick={() => { logout(); navigate('/login'); }} variant="outline">Logout</Button>}
             </>
           )}
           <IconButton

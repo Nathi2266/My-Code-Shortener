@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
 import re
 import time
 import ast
@@ -39,6 +41,14 @@ MASKING_SUPPORTED_EXTENSIONS = {
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+# Load environment variables
+load_dotenv()
+
+# Database configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL') or os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///app.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
 # Load SECRET_KEY from environment variable, or generate a new one if not set
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 if not app.config['SECRET_KEY']:
@@ -49,11 +59,25 @@ if not app.config['SECRET_KEY']:
 # In a real application, this would be replaced with a persistent database
 snippets_db = {} 
 
-# User database (for demonstration purposes)
-users_db = {
-    "user1@example.com": {"password": "hashed_password_1", "user_id": "user1"},
-    "user2@example.com": {"password": "hashed_password_2", "user_id": "user2"}
-}
+# SQLAlchemy model(s)
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def set_password(self, password: str) -> None:
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        return check_password_hash(self.password_hash, password)
+
+with app.app_context():
+    try:
+        db.create_all()
+    except Exception as e:
+        logger.error(f"DB init failed: {e}")
 
 def generate_short_id():
     """Generates a unique short ID for snippets."""
@@ -66,7 +90,10 @@ def jwt_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = None
-        if 'x-access-token' in request.headers:
+        auth_header = request.headers.get('Authorization', '')
+        if isinstance(auth_header, str) and auth_header.lower().startswith('bearer '):
+            token = auth_header.split(' ', 1)[1].strip()
+        if not token and 'x-access-token' in request.headers:
             token = request.headers['x-access-token']
         if not token:
             return jsonify({'message': 'Token is missing!'}), 401
@@ -775,27 +802,52 @@ def process_zip():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/auth/register', methods=['POST'])
+def register_user():
+    try:
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+        password = data.get('password') or ''
+        if not email or not password:
+            return jsonify({'message': 'Email and password are required'}), 400
+
+        # Check existing
+        existing = User.query.filter_by(email=email).first()
+        if existing:
+            return jsonify({'message': 'Email already registered'}), 409
+
+        user = User(email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        return jsonify({'message': 'Registered successfully'}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'registration_failed', 'details': str(e)}), 500
+
+
 @app.route('/api/auth/login', methods=['POST'])
 def login_user():
     try:
-        data = request.get_json()
-        email = data.get('email')
-        password = data.get('password')
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+        password = data.get('password') or ''
+        if not email or not password:
+            return jsonify({'message': 'Email and password are required'}), 400
 
-        user = users_db.get(email)
-
-        if not user or user['password'] != password:  # In a real app, use hashed passwords
+        user = User.query.filter_by(email=email).first()
+        if not user or not user.check_password(password):
             return jsonify({'message': 'Invalid credentials'}), 401
 
         token = jwt.encode({
-            'user_id': user['user_id'],
-            'exp': datetime.utcnow() + timedelta(minutes=30)  # Token expires in 30 minutes
+            'user_id': str(user.id),
+            'exp': datetime.utcnow() + timedelta(hours=12)
         }, app.config['SECRET_KEY'], algorithm="HS256")
 
         return jsonify({'token': token})
-
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'login_failed', 'details': str(e)}), 500
 
 @app.route('/api/snippets', methods=['POST'])
 @jwt_required

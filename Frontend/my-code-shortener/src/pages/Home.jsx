@@ -56,7 +56,10 @@ const Home = () => {
     try {
       const response = await fetch(`/api/shorten`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token') || ''}`
+        },
         body: JSON.stringify({ 
           code: (getSelectedText() || code),
           compressionPercent
@@ -117,7 +120,9 @@ const Home = () => {
 
   const pollMaskingStatus = async (jobId) => {
     try {
-      const res = await fetch(`/api/mask/status/${jobId}`);
+      const res = await fetch(`/api/mask/status/${jobId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
+      });
       if (!res.ok) return;
       const data = await res.json();
       setMaskStatus(data.status);
@@ -146,7 +151,7 @@ const Home = () => {
     try {
       const form = new FormData();
       form.append('file', selectedFile);
-      const res = await fetch(`/api/mask/upload`, { method: 'POST', body: form });
+      const res = await fetch(`/api/mask/upload`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } });
       if (!res.ok) throw new Error('Upload failed');
       const data = await res.json();
       setMaskJobId(data.job_id);
@@ -164,7 +169,7 @@ const Home = () => {
   const handleDownloadMaskedZip = async () => {
     if (!maskJobId) return;
     try {
-      const res = await fetch(`/api/mask/download/${maskJobId}`);
+      const res = await fetch(`/api/mask/download/${maskJobId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } });
       if (!res.ok) throw new Error('Not ready');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
