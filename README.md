@@ -93,6 +93,24 @@ Frontend runs at http://localhost:3000 and proxies API requests to the backend v
 - Dark overlay ensures text contrast; navbar and content cards use translucent backgrounds with blur
 - To change the background, replace cSHORT.mp4 and restart the dev server
 
+## Screenshots
+
+- **Login**
+
+![Login](./code-1-pic.jpeg)
+
+- **Register**
+
+![Register](./code-2-pic.jpeg)
+
+- **Welcome**
+
+![Welcome](./code-3-pic.jpeg)
+
+- **Playground**
+
+![Playground](./code-4-pic.jpeg)
+
 ## Selected API Endpoints
 - POST /api/shorten: shorten a provided code snippet
 - POST /api/auth/login: login, returns JWT
@@ -117,7 +135,7 @@ Outputs to Frontend/build.
 Run these from the repository root:
 ```
 git add README.md
-git commit -m "docs: add project README"
+git commit -m "docs: add project README with screenshots"
 git push origin main
 ```
 If this is a new repository, initialize and set remote first:
