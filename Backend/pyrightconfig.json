@@ -1,6 +1,6 @@
 {
-    "reportUndefinedVariable": "none",
-    "reportMissingImports": "none",
+    "reportUndefinedVariable": "warning",
+    "reportMissingImports": "warning",
     "reportMissingModuleSource": "none",
     "reportGeneralTypeIssues": "none",
     "reportOptionalMemberAccess": "none",
@@ -9,5 +9,7 @@
     "reportUnusedImport": "none",
     "reportUnusedClass": "none",
     "reportUnusedFunction": "none",
-    "reportUnusedVariable": "none"
+    "reportUnusedVariable": "none",
+    "venvPath": ".",
+    "venv": "venv"
 }

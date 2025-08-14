@@ -1,0 +1,7 @@
+{
+    "python.pythonPath": "Backend\\venv\\Scripts\\python.exe",
+    "python.analysis.extraPaths": [
+        "Backend"
+    ],
+    "python.analysis.autoSearchPaths": true
+}
