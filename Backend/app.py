@@ -45,7 +45,12 @@ CORS(app)  # Enable CORS for all routes
 load_dotenv()
 
 # Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL') or os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///app.db')
+_db_url = os.getenv('DATABASE_URL') or os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///app.db')
+if _db_url.startswith('postgres://'):
+    _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+if _db_url.startswith('postgresql://') and 'render.com' in _db_url and 'sslmode=' not in _db_url:
+    _db_url = _db_url + ('?sslmode=require' if '?' not in _db_url else '&sslmode=require')
+app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
