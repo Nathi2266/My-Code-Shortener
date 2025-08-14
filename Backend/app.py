@@ -20,6 +20,7 @@ import io
 from pathlib import Path
 import mimetypes
 import logging
+import bleach
 from collections import defaultdict
 import jwt
 from datetime import datetime, timedelta
@@ -84,6 +85,36 @@ with app.app_context():
     except Exception as e:
         logger.error(f"DB init failed: {e}")
 
+# New SQLAlchemy models for processed files and comments
+class ProcessedFile(db.Model):
+    __tablename__ = 'processed_files'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    original = db.Column(db.Text, nullable=False)
+    shortened = db.Column(db.Text, nullable=False)
+    language = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('processed_files', lazy=True))
+
+
+class Comment(db.Model):
+    __tablename__ = 'comments'
+    id = db.Column(db.Integer, primary_key=True)
+    file_id = db.Column(db.Integer, db.ForeignKey('processed_files.id'), nullable=False, index=True)
+    username = db.Column(db.String(255), nullable=False)
+    comment = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    file = db.relationship('ProcessedFile', backref=db.backref('comments', lazy=True, cascade="all, delete-orphan"))
+
+
+with app.app_context():
+    try:
+        db.create_all()
+    except Exception as e:
+        logger.error(f"DB migration failed: {e}")
+
 def generate_short_id():
     """Generates a unique short ID for snippets."""
     return secrets.token_urlsafe(6)
@@ -109,6 +140,22 @@ def jwt_required(f):
             return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
         return f(current_user, *args, **kwargs)
     return decorated
+
+
+def _get_current_user_optional() -> Optional[User]:
+    """Attempt to decode Authorization bearer token and return the User or None."""
+    try:
+        auth_header = request.headers.get('Authorization', '')
+        token = None
+        if isinstance(auth_header, str) and auth_header.lower().startswith('bearer '):
+            token = auth_header.split(' ', 1)[1].strip()
+        if not token:
+            return None
+        data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        user_id = int(data.get('user_id'))
+        return db.session.get(User, user_id)
+    except Exception:
+        return None
 
 def fast_strip(code_str):
     """Quickly strip comments and blank lines from Python code"""
@@ -719,11 +766,28 @@ def shorten():
             logger.error(f"Error during minification for language {lang}: {str(e)}")
             return jsonify({"error": f"Minification failed for {lang}: {str(e)}"}), 500
 
+        # Persist processed file and return its ID for comments linkage
+        current_user = _get_current_user_optional()
+        processed_file = ProcessedFile(
+            user_id=(current_user.id if current_user else None),
+            original=code,
+            shortened=compressed,
+            language=lang
+        )
+        try:
+            db.session.add(processed_file)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Failed to persist processed file: {str(e)}")
+            return jsonify({"error": "db_error"}), 500
+
         return jsonify({
             "original": code,
             "shortened": compressed,
             "language": lang,
-            "compression": compression_percent
+            "compression": compression_percent,
+            "file_id": processed_file.id
         })
         
     except Exception as e:
@@ -937,6 +1001,65 @@ def delete_snippet(current_user, short_id):
         return jsonify({'message': 'Snippet deleted'}), 204
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ===================== Comments API =====================
+@app.route('/api/comments', methods=['POST'])
+@jwt_required
+def create_comment(current_user):
+    try:
+        data = request.get_json() or {}
+        file_id = data.get('file_id')
+        raw_comment = (data.get('comment') or '').strip()
+
+        if not file_id:
+            return jsonify({'message': 'file_id is required'}), 400
+        if not raw_comment:
+            return jsonify({'message': 'Comment cannot be empty'}), 400
+        if len(raw_comment) > 5000:
+            return jsonify({'message': 'Comment too long'}), 400
+
+        processed_file = db.session.get(ProcessedFile, file_id)
+        if not processed_file:
+            return jsonify({'message': 'Processed file not found'}), 404
+
+        # Sanitize input to prevent XSS
+        safe_comment = bleach.clean(raw_comment, strip=True)
+
+        user_obj = db.session.get(User, int(current_user))
+        username = user_obj.email if user_obj else 'user'
+
+        new_comment = Comment(file_id=processed_file.id, username=username, comment=safe_comment)
+        db.session.add(new_comment)
+        db.session.commit()
+
+        return jsonify({
+            'id': new_comment.id,
+            'file_id': new_comment.file_id,
+            'username': new_comment.username,
+            'comment': new_comment.comment,
+            'timestamp': new_comment.created_at.isoformat() + 'Z'
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'create_comment_failed', 'details': str(e)}), 500
+
+
+@app.route('/api/comments/<int:file_id>', methods=['GET'])
+def list_comments(file_id: int):
+    try:
+        comments = Comment.query.filter_by(file_id=file_id).order_by(Comment.created_at.desc()).all()
+        return jsonify([
+            {
+                'id': c.id,
+                'file_id': c.file_id,
+                'username': c.username,
+                'comment': c.comment,
+                'timestamp': c.created_at.isoformat() + 'Z'
+            } for c in comments
+        ])
+    except Exception as e:
+        return jsonify({'error': 'list_comments_failed', 'details': str(e)}), 500
 
 @app.route('/metrics', methods=['POST'])
 def track_metrics():
