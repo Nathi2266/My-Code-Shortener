@@ -1,6 +1,34 @@
 import React, { useState } from 'react';
-import { Box, Button, FormControl, FormLabel, Input, Heading, useToast } from '@chakra-ui/react';
+import { Box, Button, FormControl, FormLabel, Input, Heading, useToast, Progress, Text } from '@chakra-ui/react';
 import { Link, useNavigate } from 'react-router-dom';
+
+const evaluatePasswordStrength = (pwd) => {
+	const checks = [
+		pwd.length >= 8,
+		/[A-Z]/.test(pwd),
+		/[a-z]/.test(pwd),
+		/\d/.test(pwd),
+		/[^A-Za-z0-9]/.test(pwd)
+	];
+	const passed = checks.filter(Boolean).length;
+	const value = Math.round((passed / 5) * 100);
+	let label = 'Very weak';
+	let color = 'red';
+	if (passed === 2) {
+		label = 'Weak';
+		color = 'orange';
+	} else if (passed === 3) {
+		label = 'Fair';
+		color = 'yellow';
+	} else if (passed === 4) {
+		label = 'Strong';
+		color = 'green';
+	} else if (passed === 5) {
+		label = 'Very strong';
+		color = 'green';
+	}
+	return { value, label, color };
+};
 
 const Register = () => {
 	const [email, setEmail] = useState('');
@@ -9,6 +37,8 @@ const Register = () => {
 	const [isLoading, setIsLoading] = useState(false);
 	const toast = useToast();
 	const navigate = useNavigate();
+
+	const strength = evaluatePasswordStrength(password);
 
 	const handleSubmit = async (e) => {
 		e.preventDefault();
@@ -45,6 +75,12 @@ const Register = () => {
 				<FormControl mb={4} isRequired>
 					<FormLabel>Password</FormLabel>
 					<Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+					{password && (
+						<Box mt={2}>
+							<Progress value={strength.value} colorScheme={strength.color} size="sm" borderRadius="sm" />
+							<Text mt={1} fontSize="sm" color="gray.600">{strength.label}</Text>
+						</Box>
+					)}
 				</FormControl>
 				<FormControl mb={6} isRequired>
 					<FormLabel>Confirm Password</FormLabel>
