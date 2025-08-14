@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'; // Import motion
 import { FiLogIn, FiUserPlus, FiLogOut } from 'react-icons/fi'; // Import icons
 import { RxGlobe } from 'react-icons/rx';
 import React from 'react'; // Added missing import for React
+import bgVideo from '../assets/videos/cSHORT.mp4';
 
 export function ErrorBoundary() {
   const error = useRouteError();
@@ -35,21 +36,37 @@ const Layout = () => {
         autoPlay 
         loop 
         muted 
+        playsInline
         style={{
           position: 'absolute',
           width: '100%',
           height: '100%',
           objectFit: 'cover',
-          zIndex: -1,
+          zIndex: -2,
         }}
       >
-        <source src="/assets/videos/cSHORT.mp4" type="video/mp4" />
+        <source src={bgVideo} type="video/mp4" />
         Your browser does not support the video tag.
       </video>
+
+      <Box
+        position="absolute"
+        top={0}
+        right={0}
+        bottom={0}
+        left={0}
+        bg="blackAlpha.700"
+        zIndex={-1}
+        pointerEvents="none"
+      />
+
       <Flex direction="column" minH="100vh" position="relative" zIndex="0">
         <Flex 
           as="nav" 
-          bg={useColorModeValue('gray.100', 'gray.900')}
+          bg={useColorModeValue('whiteAlpha.700', 'blackAlpha.700')}
+          backdropFilter="blur(10px)"
+          borderBottom="1px solid"
+          borderColor={useColorModeValue('blackAlpha.200', 'whiteAlpha.300')}
           p={4}
           justify="space-between"
           align="center"
